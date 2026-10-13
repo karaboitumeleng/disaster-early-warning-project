@@ -1,0 +1,90 @@
+from collections.abc import Mapping
+from dataclasses import dataclass
+from math import exp
+from typing import Protocol
+
+from app.ml.novelty import check_novelty
+
+
+@dataclass(frozen=True)
+class Prediction:
+    region_id: str
+    risk_score: float  # 0..1
+    disaster_type: str
+    confidence: float  # 0..1
+    novel: bool
+    degraded: bool  # True when the satellite feed is missing (reduced-confidence mode)
+    model_version: str
+    top_features: list[tuple[str, float]]  # (feature, contribution to logit), desc by magnitude
+
+
+class Predictor(Protocol):
+    """The API/application layers depend on this protocol only, never on a concrete model."""
+
+    version: str
+
+    def predict(self, region_id: str, features: Mapping[str, float | None]) -> Prediction: ...
+
+
+class StatisticalBaselinePredictor:
+    """Hand-weighted logistic fallback. NOT a trained model and not evidence for the accuracy
+    target; it exists so the pipeline works end-to-end and as the safety net when the CNN-LSTM
+    artefact is missing."""
+
+    version = "baseline-0.1"
+    _BIAS = -3.5
+    # feature -> (scale, weight)
+    _W = {
+        "rainfall_mm_24h": (100.0, 3.2),
+        "river_level_m": (5.0, 2.6),
+        "soil_moisture": (1.0, 1.2),
+        "ndwi_mean": (1.0, 1.0),
+    }
+
+    def predict(self, region_id: str, features: Mapping[str, float | None]) -> Prediction:
+        contribs: dict[str, float] = {}
+        for name, (scale, weight) in self._W.items():
+            v = features.get(name)
+            if v is not None:
+                contribs[name] = weight * v / scale
+        z = self._BIAS + sum(contribs.values())
+        score = 1.0 / (1.0 + exp(-z))
+
+        degraded = features.get("ndwi_mean") is None
+        missing_ground = sum(features.get(k) is None for k in ("river_level_m", "soil_moisture"))
+        confidence = 0.85 - (0.15 if degraded else 0.0) - 0.05 * missing_ground
+        novel, _ = check_novelty(dict(features))
+        if novel:
+            confidence *= 0.5
+        top = sorted(contribs.items(), key=lambda kv: abs(kv[1]), reverse=True)
+        return Prediction(
+            region_id=region_id,
+            risk_score=round(score, 4),
+            disaster_type="unrecognised" if novel else "flood",
+            confidence=round(max(confidence, 0.3) if not novel else confidence, 3),
+            novel=novel,
+            degraded=degraded,
+            model_version=self.version,
+            top_features=[(k, round(v, 3)) for k, v in top],
+        )
+
+
+class ModelRegistry:
+    """Pluggable registry with fallback. Step 3 registers the CNN-LSTM here."""
+
+    def __init__(self, fallback: Predictor) -> None:
+        self._models: dict[str, Predictor] = {}
+        self._fallback = fallback
+        self._active: str | None = None
+
+    def register(self, name: str, model: Predictor, activate: bool = False) -> None:
+        self._models[name] = model
+        if activate:
+            self._active = name
+
+    def active(self) -> Predictor:
+        return self._models.get(self._active or "", self._fallback)
+
+
+def load_registry() -> ModelRegistry:
+    return ModelRegistry(fallback=StatisticalBaselinePredictor())

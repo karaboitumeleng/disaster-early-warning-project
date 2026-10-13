@@ -1,0 +1,24 @@
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Region:
+    id: str
+    name: str
+    province: str
+    lat: float
+    lon: float
+
+
+REGIONS: tuple[Region, ...] = (
+    Region("KZN-ETHEKWINI", "eThekwini (Durban)", "KwaZulu-Natal", -29.86, 31.02),
+    Region("KZN-ILEMBE", "iLembe (KwaDukuza)", "KwaZulu-Natal", -29.33, 31.29),
+    Region("KZN-UGU", "Ugu (Port Shepstone)", "KwaZulu-Natal", -30.74, 30.45),
+    Region("KZN-UMGUNGUNDLOVU", "uMgungundlovu (Pietermaritzburg)", "KwaZulu-Natal", -29.60, 30.38),
+    Region("KZN-UTHUKELA", "uThukela (Ladysmith)", "KwaZulu-Natal", -28.56, 29.78),
+    Region("KZN-KING-CETSHWAYO", "King Cetshwayo (Richards Bay)", "KwaZulu-Natal", -28.78, 32.04),
+    Region("MP-EHLANZENI", "Ehlanzeni (Mbombela)", "Mpumalanga", -25.47, 30.98),
+    Region("MP-GERT-SIBANDE", "Gert Sibande (Ermelo)", "Mpumalanga", -26.53, 29.98),
+    Region("MP-NKANGALA", "Nkangala (Middelburg)", "Mpumalanga", -25.77, 29.46),
+)
+REGION_IDS = {r.id for r in REGIONS}

@@ -1,0 +1,95 @@
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.api.routes import router
+from app.application.alerts import AlertService
+from app.application.ingestion import IngestionService
+from app.application.prediction import PredictionService
+from app.config import get_settings
+from app.db import Base, make_engine, make_session_factory
+from app.events import DataIngested, EventBus
+from app.hub import AlertHub
+from app.feeds import FeedMonitor
+from app.api.extra import router as extra_router
+from app.logging_conf import configure_logging
+from app.ml.predictor import load_registry
+from app.repositories import UserRepo
+from app.security import SlidingWindowLimiter, hash_password
+
+log = logging.getLogger(__name__)
+DEMO_USERS = [("admin", "admin"), ("analyst", "analyst"), ("viewer", "viewer")]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    configure_logging()
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    async with engine.begin() as conn:  # Alembic replaces this in the PostGIS step
+        await conn.run_sync(Base.metadata.create_all)
+    sf = make_session_factory(engine)
+
+    if settings.demo_password:
+        async with sf() as s:
+            repo = UserRepo(s)
+            for username, role in DEMO_USERS:
+                if await repo.by_username(username) is None:
+                    await repo.add(username, hash_password(settings.demo_password), role)
+
+    bus, hub, registry = EventBus(), AlertHub(), load_registry()
+    alerts = AlertService(sf, hub, settings.alert_threshold)
+    feeds = FeedMonitor()
+    prediction = PredictionService(registry, alerts, sf, feeds)
+    bus.subscribe(DataIngested, prediction.on_data_ingested)
+
+    app.state.settings = settings
+    app.state.session_factory = sf
+    app.state.bus, app.state.hub, app.state.registry = bus, hub, registry
+    app.state.feeds = feeds
+    app.state.ingestion = IngestionService(sf, bus)
+    app.state.login_limiter = SlidingWindowLimiter(limit=10, window_s=60)
+    log.info("startup complete", extra={"ctx": {"model": registry.active().version}})
+    yield
+    await bus.drain()  # finish in-flight predictions
+    await hub.close_all()  # clean WebSocket close
+    await engine.dispose()
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    app = FastAPI(title="SA Disaster Early Warning API", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.origins,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
+
+    @app.middleware("http")
+    async def guards(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > settings.max_payload_bytes:
+            return JSONResponse({"error": "payload_too_large"}, status_code=413)
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        if not request.url.path.startswith(("/docs", "/redoc", "/openapi")):
+            response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        return response
+
+    @app.exception_handler(Exception)
+    async def unhandled(_: Request, exc: Exception) -> JSONResponse:
+        log.exception("unhandled error")  # stack trace stays in logs, never in the response
+        return JSONResponse({"error": "internal_error"}, status_code=500)
+
+    app.include_router(router)
+    app.include_router(extra_router)
+    return app

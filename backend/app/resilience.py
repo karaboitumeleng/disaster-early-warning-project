@@ -1,0 +1,73 @@
+"""Retry with exponential backoff + circuit breaker for every external call."""
+import asyncio
+import random
+import time
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
+
+T = TypeVar("T")
+
+
+class CircuitOpenError(Exception):
+    """Raised instead of calling a dependency that is known to be failing."""
+
+
+class CircuitBreaker:
+    def __init__(
+        self,
+        failure_threshold: int = 3,
+        reset_after_s: float = 30.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.failure_threshold = failure_threshold
+        self.reset_after_s = reset_after_s
+        self._clock = clock
+        self._failures = 0
+        self._opened_at: float | None = None
+
+    @property
+    def state(self) -> str:
+        if self._opened_at is None:
+            return "closed"
+        if self._clock() - self._opened_at >= self.reset_after_s:
+            return "half_open"
+        return "open"
+
+    def allow(self) -> bool:
+        return self.state != "open"
+
+    def record_success(self) -> None:
+        self._failures = 0
+        self._opened_at = None
+
+    def record_failure(self) -> None:
+        was_half_open = self.state == "half_open"
+        self._failures += 1
+        if was_half_open or self._failures >= self.failure_threshold:
+            self._opened_at = self._clock()
+
+
+async def call_with_resilience(
+    fn: Callable[[], Awaitable[T]],
+    breaker: CircuitBreaker,
+    retries: int = 3,
+    base_delay: float = 0.5,
+    timeout: float = 10.0,
+) -> T:
+    """Timeout per attempt, exponential backoff with jitter, stops when the breaker opens."""
+    if not breaker.allow():
+        raise CircuitOpenError("circuit open")
+    last: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            result = await asyncio.wait_for(fn(), timeout)
+            breaker.record_success()
+            return result
+        except Exception as exc:
+            last = exc
+            breaker.record_failure()
+            if not breaker.allow() or attempt == retries:
+                break
+            await asyncio.sleep(base_delay * 2**attempt * (0.5 + random.random() / 2))
+    assert last is not None
+    raise last

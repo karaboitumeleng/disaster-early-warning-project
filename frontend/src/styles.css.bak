@@ -1,0 +1,27 @@
+
+/* ---- v2 additions ---- */
+.shell { max-width: 1100px; }
+.tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.tab { background: transparent; color: var(--text); border: 1px solid var(--line); }
+.tab.active { background: var(--watch); color: #04101f; }
+.banner.warn { background: var(--warn); animation: none; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.inline { display: flex; align-items: center; gap: .5rem; }
+select { padding: .45rem .6rem; border-radius: 8px; border: 1px solid var(--line); background: #0f1a30; color: var(--text); }
+.mapgrid { display: grid; grid-template-columns: 1fr 320px; gap: 1rem; }
+@media (max-width: 800px) { .mapgrid { grid-template-columns: 1fr; } }
+.map { height: 520px; border-radius: 14px; border: 1px solid var(--line); background: #0f1a30; }
+.marker { display: inline-block; padding: .2rem .5rem; border: 2px solid; border-radius: 99px; background: #0b1220;
+  color: #fff; font-weight: 700; font-size: .8rem; white-space: nowrap; }
+.marker.critical { animation: pulse 1.4s infinite; }
+.regionlist { list-style: none; padding: 0; margin: 0; display: grid; gap: .4rem; }
+.regionlist button { width: 100%; text-align: left; }
+.drawer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.chart { padding: 1rem; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--line); }
+.matrix { display: grid; grid-template-columns: repeat(3, auto); gap: .4rem 1rem; margin-top: 1rem; width: max-content; }
+.feeds { list-style: none; padding: 0; display: grid; gap: .8rem; }
+.card + .card { margin-top: 1rem; }
+@media (prefers-reduced-motion: reduce) { .marker.critical { animation: none; } }

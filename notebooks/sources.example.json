@@ -1,0 +1,52 @@
+{
+  "_comment": "Copy to data/raw/sources.json and edit to match YOUR files. Paths are relative to data/raw/. Column names below are placeholders / recollections: check your real headers.",
+  "date_range": ["2015-01-01", "2024-12-31"],
+  "max_rainfall_missing_frac": 0.05,
+  "stations": [
+    {
+      "file": "saws/durban_daily.csv",
+      "region_id": "KZN-ETHEKWINI",
+      "columns": {"date": "Date", "rainfall_mm": "Rain_mm", "tmax_c": "Tmax", "tmin_c": "Tmin",
+                  "humidity_pct": "RH", "pressure_hpa": "MSLP", "wind_ms": "Wind"},
+      "scale": {"wind_ms": 1.0},
+      "date_format": "%Y-%m-%d",
+      "missing": ["-999", "NA", ""]
+    },
+    {
+      "file": "dws/river_stage_daily.csv",
+      "region_id": "KZN-ETHEKWINI",
+      "columns": {"date": "Date", "river_level_m": "Stage_m"}
+    }
+  ],
+  "events": {
+    "file": "emdat/emdat_export.xlsx",
+    "filter": {"Country": "South Africa", "Disaster Type": ["Flood"]},
+    "start": {"year": "Start Year", "month": "Start Month", "day": "Start Day"},
+    "end": {"year": "End Year", "month": "End Month", "day": "End Day"},
+    "location_columns": ["Location", "Admin Units"],
+    "region_keywords": {
+      "KZN-ETHEKWINI": ["ethekwini", "durban"],
+      "KZN-ILEMBE": ["ilembe", "kwadukuza", "stanger", "ballito"],
+      "KZN-UGU": ["ugu", "port shepstone", "hibiscus", "umzumbe"],
+      "KZN-UMGUNGUNDLOVU": ["umgungundlovu", "pietermaritzburg", "msunduzi"],
+      "KZN-UTHUKELA": ["uthukela", "ladysmith", "estcourt", "alfred duma"],
+      "KZN-KING-CETSHWAYO": ["king cetshwayo", "uthungulu", "richards bay", "empangeni"],
+      "MP-EHLANZENI": ["ehlanzeni", "mbombela", "nelspruit", "bushbuckridge"],
+      "MP-GERT-SIBANDE": ["gert sibande", "ermelo", "secunda"],
+      "MP-NKANGALA": ["nkangala", "middelburg", "emalahleni", "witbank"]
+    },
+    "province_fallback": {
+      "kwazulu": ["KZN-ETHEKWINI", "KZN-ILEMBE", "KZN-UGU", "KZN-UMGUNGUNDLOVU", "KZN-UTHUKELA", "KZN-KING-CETSHWAYO"],
+      "mpumalanga": ["MP-EHLANZENI", "MP-GERT-SIBANDE", "MP-NKANGALA"]
+    },
+    "max_duration_days": 7,
+    "pad_days_before": 0
+  },
+  "statics": {"file": "statics/region_statics.csv"},
+  "tiles": {
+    "dir": "tiles",
+    "max_age_days": 15,
+    "max_nan_frac": 0.5,
+    "band_order": ["ndwi", "ndvi", "swir", "dem"]
+  }
+}

@@ -1,0 +1,1 @@
+{"features": ["rainfall_mm_24h", "river_level_m", "soil_moisture", "temperature_c", "humidity_pct"], "max_filled_days": 3}

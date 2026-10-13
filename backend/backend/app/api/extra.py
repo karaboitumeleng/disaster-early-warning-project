@@ -1,0 +1,168 @@
+"""Map, analytics, model-performance and feed-health endpoints (all require a session)."""
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import Path as PathParam
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import current_user, db_session, require_roles
+from app.models import Alert, AuditLog, Reading
+from app.regions import REGIONS
+from app.repositories import AuditRepo
+from app.security import TokenData
+
+router = APIRouter()
+_ID = r"^[A-Za-z0-9_-]+$"
+_FEATURE_KEYS = (
+    "rainfall_mm_24h",
+    "river_level_m",
+    "soil_moisture",
+    "temperature_c",
+    "humidity_pct",
+    "ndwi_mean",
+)
+
+
+def level_for(score: float | None) -> str:
+    if score is None:
+        return "unknown"
+    if score >= 0.9:
+        return "critical"
+    if score >= 0.75:
+        return "warning"
+    if score >= 0.6:
+        return "watch"
+    return "low"
+
+
+def _aware(ts: datetime) -> datetime:
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+@router.get("/regions/risk")
+async def regions_risk(
+    _: TokenData = Depends(current_user), s: AsyncSession = Depends(db_session)
+) -> list[dict[str, Any]]:
+    """Latest predicted risk per region (from the prediction audit trail)."""
+    q = (
+        select(AuditLog)
+        .where(AuditLog.action == "prediction")
+        .order_by(AuditLog.id.desc())
+        .limit(2000)
+    )
+    latest: dict[str, AuditLog] = {}
+    for row in (await s.execute(q)).scalars():
+        rid = row.detail.get("region")
+        if isinstance(rid, str) and rid not in latest:
+            latest[rid] = row
+    out: list[dict[str, Any]] = []
+    for reg in REGIONS:
+        row = latest.get(reg.id)
+        d: dict[str, Any] = row.detail if row else {}
+        score = d.get("score")
+        out.append(
+            {
+                "id": reg.id,
+                "name": reg.name,
+                "province": reg.province,
+                "lat": reg.lat,
+                "lon": reg.lon,
+                "risk": score,
+                "level": level_for(score),
+                "confidence": d.get("confidence"),
+                "degraded": bool(d.get("degraded", False)),
+                "novel": bool(d.get("novel", False)),
+                "updated_at": _aware(row.ts).isoformat() if row else None,
+            }
+        )
+    return out
+
+
+@router.get("/regions/{region_id}/timeseries")
+async def region_timeseries(
+    request: Request,
+    region_id: str = PathParam(pattern=_ID, max_length=32),
+    limit: int = Query(default=200, ge=1, le=1000),
+    _: TokenData = Depends(current_user),
+    s: AsyncSession = Depends(db_session),
+) -> list[dict[str, Any]]:
+    """Stored readings with the ACTIVE model's risk recomputed as an overlay."""
+    q = (
+        select(Reading)
+        .where(Reading.region_id == region_id)
+        .order_by(Reading.observed_at.desc())
+        .limit(limit)
+    )
+    rows = list((await s.execute(q)).scalars())
+    model = request.app.state.registry.active()
+    out: list[dict[str, Any]] = []
+    for r in reversed(rows):
+        p = r.payload
+        pred = model.predict(region_id, {k: p.get(k) for k in _FEATURE_KEYS})
+        out.append(
+            {
+                "t": p.get("observed_at"),
+                "rainfall": p.get("rainfall_mm_24h"),
+                "river_level": p.get("river_level_m"),
+                "risk": pred.risk_score,
+                "novel": pred.novel,
+            }
+        )
+    return out
+
+
+@router.get("/model/metrics")
+async def model_metrics(
+    request: Request,
+    _: TokenData = Depends(current_user),
+    s: AsyncSession = Depends(db_session),
+) -> dict[str, Any]:
+    path = Path(os.environ.get("MODELS_DIR", "../models")) / "metrics.json"
+    metrics: Any = None
+    if path.is_file():
+        try:
+            metrics = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            metrics = None
+    q = select(Alert.latency_ms).order_by(Alert.id.desc()).limit(1000)
+    vals = sorted(float(v) for v in (await s.execute(q)).scalars())
+    latency: dict[str, Any] = {"count": len(vals), "mean_ms": None, "p95_ms": None, "max_ms": None}
+    if vals:
+        latency = {
+            "count": len(vals),
+            "mean_ms": round(sum(vals) / len(vals), 1),
+            "p95_ms": vals[int(0.95 * (len(vals) - 1))],
+            "max_ms": vals[-1],
+        }
+    return {
+        "available": metrics is not None,
+        "metrics": metrics,
+        "latency": latency,
+        "active_model": request.app.state.registry.active().version,
+    }
+
+
+@router.get("/feeds")
+async def feeds(request: Request, _: TokenData = Depends(current_user)) -> list[dict[str, Any]]:
+    return list(request.app.state.feeds.snapshot())
+
+
+@router.post("/feeds/{name}/{state}")
+async def set_feed_state(
+    request: Request,
+    name: str = PathParam(pattern=_ID, max_length=32),
+    state: str = PathParam(pattern="^(up|down)$"),
+    user: TokenData = Depends(require_roles("admin")),
+    s: AsyncSession = Depends(db_session),
+) -> dict[str, Any]:
+    """Admin-only: simulate a feed outage / restore it (demonstrates graceful degradation)."""
+    if not request.app.state.feeds.set_forced_down(name, state == "down"):
+        raise HTTPException(status_code=404, detail="Unknown feed")
+    action = "feed.simulated_outage" if state == "down" else "feed.restored"
+    await AuditRepo(s).record(user.sub, action, {"feed": name})
+    return {"feed": name, "state": state}

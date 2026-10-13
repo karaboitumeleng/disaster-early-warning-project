@@ -1,0 +1,49 @@
+import time
+from collections.abc import Iterator
+from datetime import datetime, timezone
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.config import get_settings
+
+PASSWORD = "demo-pass-123"
+
+
+@pytest.fixture()
+def client(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
+    monkeypatch.setenv("JWT_SECRET", "x" * 40)
+    monkeypatch.setenv("DEMO_PASSWORD", PASSWORD)
+    get_settings.cache_clear()
+    from app.main import create_app
+
+    with TestClient(create_app()) as c:
+        yield c
+    get_settings.cache_clear()
+
+
+def auth(client: TestClient, user: str) -> dict[str, str]:
+    r = client.post("/auth/login", json={"username": user, "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def flood_payload(station: str = "SAWS-DBN01") -> dict[str, Any]:
+    return {
+        "station_id": station, "region_id": "KZN-ETHEKWINI",
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "lat": -29.85, "lon": 31.02, "rainfall_mm_24h": 180, "river_level_m": 6.5,
+        "soil_moisture": 0.92, "temperature_c": 21, "humidity_pct": 95,
+    }
+
+
+def wait_for_alerts(client: TestClient, headers: dict[str, str], timeout: float = 10) -> list[Any]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        alerts = client.get("/alerts", headers=headers).json()
+        if alerts:
+            return list(alerts)
+        time.sleep(0.1)
+    return []

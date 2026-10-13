@@ -1,0 +1,60 @@
+"""Data-feed health. The prediction path asks this monitor whether a feed is usable and
+degrades gracefully (reduced confidence) instead of failing.
+
+In the prototype there is no live satellite client yet. Real clients must call the feed's
+breaker through resilience.call_with_resilience; admins can also force an outage for demos."""
+from dataclasses import dataclass, field
+from typing import Any
+
+from app.resilience import CircuitBreaker
+
+_FEEDS = {
+    "satellite": (
+        "Sentinel-2 / Landsat 8 imagery",
+        "Optional. When down, predictions use ground data only (reduced confidence).",
+    ),
+    "saws": ("SAWS station data", "Primary ground feed."),
+    "tide_gauge": ("PSMSL tide gauges", "Local snapshot in the prototype."),
+    "sanlc": ("SANLC land cover", "Local snapshot in the prototype."),
+}
+
+
+@dataclass
+class Feed:
+    name: str
+    label: str
+    note: str
+    breaker: CircuitBreaker = field(default_factory=CircuitBreaker)
+    forced_down: bool = False
+
+
+class FeedMonitor:
+    def __init__(self) -> None:
+        self._feeds = {n: Feed(n, label, note) for n, (label, note) in _FEEDS.items()}
+
+    def get(self, name: str) -> Feed | None:
+        return self._feeds.get(name)
+
+    def is_up(self, name: str) -> bool:
+        f = self._feeds.get(name)
+        return f is not None and not f.forced_down and f.breaker.allow()
+
+    def set_forced_down(self, name: str, down: bool) -> bool:
+        f = self._feeds.get(name)
+        if f is None:
+            return False
+        f.forced_down = down
+        return True
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": f.name,
+                "label": f.label,
+                "note": f.note,
+                "state": "up" if self.is_up(f.name) else "down",
+                "breaker": f.breaker.state,
+                "simulated": f.forced_down,
+            }
+            for f in self._feeds.values()
+        ]
