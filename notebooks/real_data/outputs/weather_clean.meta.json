@@ -1,0 +1,12 @@
+{
+  "data_kind": "real",
+  "rows": 790,
+  "sha256": {
+    "weather_clean.csv": "35da7feddb06938598121826b8d1e83156ea00e95acd5429418858c5e4980c61"
+  },
+  "steps": [
+    "asserted no gaps / duplicates",
+    "wind km/h -> m/s",
+    "rainfall untouched"
+  ]
+}

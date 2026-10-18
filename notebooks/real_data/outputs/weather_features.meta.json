@@ -1,0 +1,74 @@
+{
+  "data_kind": "real",
+  "target": "rain on day t+1 >= 10.0 mm (rainfall proxy, NOT recorded floods)",
+  "heavy_rain_mm": 10.0,
+  "api_decay": 0.85,
+  "val_start": "2022-01-25",
+  "test_start": "2022-04-13",
+  "scaler": {
+    "features": [
+      "rainfall_mm",
+      "rain_lag1",
+      "rain_lag2",
+      "rain_lag3",
+      "rain_3d",
+      "rain_7d",
+      "api",
+      "temperature_c",
+      "humidity_pct",
+      "pressure_hpa",
+      "wind_ms",
+      "dpressure_1d",
+      "dpressure_3d",
+      "doy_sin",
+      "doy_cos",
+      "elevation_m"
+    ],
+    "mean": {
+      "rainfall_mm": 2.378664,
+      "rain_lag1": 2.380172,
+      "rain_lag2": 2.376293,
+      "rain_lag3": 2.364009,
+      "rain_3d": 7.135129,
+      "rain_7d": 16.780819,
+      "api": 15.690005,
+      "temperature_c": 19.259914,
+      "humidity_pct": 69.943966,
+      "pressure_hpa": 1018.760776,
+      "wind_ms": 5.186056,
+      "dpressure_1d": -0.055603,
+      "dpressure_3d": -0.099784,
+      "doy_sin": -0.456177,
+      "doy_cos": -0.00353,
+      "elevation_m": 334.5
+    },
+    "std": {
+      "rainfall_mm": 5.587061,
+      "rain_lag1": 5.586538,
+      "rain_lag2": 5.587784,
+      "rain_lag3": 5.587113,
+      "rain_3d": 11.183077,
+      "rain_7d": 19.364898,
+      "api": 15.750462,
+      "temperature_c": 3.544318,
+      "humidity_pct": 13.949813,
+      "pressure_hpa": 6.302851,
+      "wind_ms": 1.98734,
+      "dpressure_1d": 5.130981,
+      "dpressure_3d": 7.785151,
+      "doy_sin": 0.445471,
+      "doy_cos": 0.771464,
+      "elevation_m": 325.851322
+    }
+  },
+  "rows": {
+    "train": 464,
+    "val": 156,
+    "test": 156
+  },
+  "positives": {
+    "test": 8,
+    "train": 30,
+    "val": 17
+  }
+}

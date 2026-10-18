@@ -1,0 +1,23 @@
+{
+  "data_kind": "real",
+  "source": "Open-Meteo Historical Weather API (reanalysis)",
+  "rows": 790,
+  "stations": {
+    "KZN-ETHEKWINI": {
+      "lat": -29.841827,
+      "lon": 30.976744,
+      "elevation_m": 9.0,
+      "label": "Durban (KwaZulu-Natal)",
+      "file": "durban_kzn_daily_2021-2022.xlsx",
+      "sha256": "74180efe940f46ec43ee9f942a18b7bff573b52e8eef4c364f4c8725a0b05f7e"
+    },
+    "MP-EHLANZENI": {
+      "lat": -25.413006,
+      "lon": 31.007584,
+      "elevation_m": 660.0,
+      "label": "Mbombela (Mpumalanga)",
+      "file": "mbombela_mpumalanga_daily_2021-2022.csv.xlsx",
+      "sha256": "14088c2930eaa314ce408a2b0d7d314a8ca3aea2e0ab17c13ff540fdc4c55a6e"
+    }
+  }
+}
