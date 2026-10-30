@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Region, listAlerts, listRegions, login, openAlertSocket, setStatus, getHealth } from "./api";
-import { KpiCard } from "./Kpi";
 import RiskMap from "./RiskMap";
 import Overview from "./Overview";
 import TimeSeries from "./TimeSeries";
@@ -53,10 +52,33 @@ const SAMPLE_ALERTS: Alert[] = [
 const SAMPLE_HEALTH = { status: "healthy", services: { database: "up", event_bus: "active", torch_inference: "ready" } };
 
 const SEV = {
-  critical: { icon: "⛔", label: "CRITICAL" },
-  warning: { icon: "⚠", label: "WARNING" },
-  watch: { icon: "◉", label: "WATCH" },
+  critical: { label: "CRITICAL", badge: "border-red-800 bg-red-950/70 text-red-300", accent: "bg-red-500", dot: "bg-red-500" },
+  warning: { label: "WARNING", badge: "border-amber-800 bg-amber-950/60 text-amber-300", accent: "bg-amber-500", dot: "bg-amber-500" },
+  watch: { label: "WATCH", badge: "border-sky-800 bg-sky-950/60 text-sky-300", accent: "bg-sky-500", dot: "bg-sky-500" },
 } as const;
+
+const STATUS_STYLE: Record<string, string> = {
+  open: "border-red-800/70 text-red-300",
+  acknowledged: "border-amber-800/70 text-amber-300",
+  resolved: "border-emerald-800/70 text-emerald-300",
+};
+
+const INPUT_CLASS =
+  "mt-1.5 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500";
+
+function BrandMark() {
+  return (
+    <span
+      className="flex size-9 shrink-0 items-center justify-center rounded-md border border-sky-500/30 bg-sky-500/10 text-sky-400"
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3 4 6v6c0 4.5 3.2 8 8 9 4.8-1 8-4.5 8-9V6l-8-3Z" />
+        <path d="M8.5 12.5h2l1.5-3 2 5 1.5-2h1" />
+      </svg>
+    </span>
+  );
+}
 
 function Login({ onLogin }: { onLogin: (t: string, role: string) => void }) {
   const [u, setU] = useState("analyst");
@@ -81,16 +103,56 @@ function Login({ onLogin }: { onLogin: (t: string, role: string) => void }) {
   };
 
   return (
-    <main className="center">
-      <form className="card login" onSubmit={submit}>
-        <h1>SA Early Warning</h1>
-        <p className="muted">National Disaster Management Centre</p>
-        <label>Username<input value={u} onChange={(e) => setU(e.target.value)} autoComplete="username" /></label>
-        <label>Password<input type="password" value={p} onChange={(e) => setP(e.target.value)} autoComplete="current-password" /></label>
-        {err && <p role="alert" className="error">{err}</p>}
-        <button disabled={busy || !p}>{busy ? "Signing in…" : "Sign in"}</button>
+    <main className="grid min-h-screen place-items-center px-4">
+      <form
+        className="w-full max-w-sm space-y-5 rounded-lg border border-slate-800 bg-slate-900 p-7 shadow-xl"
+        onSubmit={submit}
+      >
+        <div className="flex items-center gap-3">
+          <BrandMark />
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight text-slate-100">SA Early Warning</h1>
+            <p className="text-xs text-slate-400">National Disaster Management Centre</p>
+          </div>
+        </div>
+        <label className="block text-sm font-medium text-slate-300">
+          Username
+          <input className={INPUT_CLASS} value={u} onChange={(e) => setU(e.target.value)} autoComplete="username" />
+        </label>
+        <label className="block text-sm font-medium text-slate-300">
+          Password
+          <input
+            className={INPUT_CLASS}
+            type="password"
+            value={p}
+            onChange={(e) => setP(e.target.value)}
+            autoComplete="current-password"
+          />
+        </label>
+        {err && (
+          <p role="alert" className="text-sm text-red-300">
+            {err}
+          </p>
+        )}
+        <button className="btn btn-primary w-full" disabled={busy || !p}>
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
       </form>
     </main>
+  );
+}
+
+function Meter({ label, pct, tone }: { label: string; pct: string; tone: string }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="text-slate-400">{label}</span>
+        <strong className="text-sm font-semibold tabular-nums text-slate-100">{pct}%</strong>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-800" role="presentation">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   );
 }
 
@@ -103,59 +165,80 @@ function AlertCard({
   canAct: boolean;
   onAct: (id: number, act: "ack" | "resolve") => void;
 }) {
-  const sev = SEV[a.severity] || { icon: "◉", label: "ALERT" };
+  const sev = SEV[a.severity] || { label: "ALERT", badge: "border-slate-700 bg-slate-800 text-slate-300", accent: "bg-slate-500", dot: "bg-slate-500" };
   const riskPct = ((a.risk_score || 0) * 100).toFixed(0);
   const confPct = ((a.confidence || 0) * 100).toFixed(0);
 
   return (
-    <article className={`card alert ${a.severity} ${a.status}`}>
-      <header className="flex justify-between items-center" style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <div className="flex items-center gap-2" style={{ display: 'flex', gap: '8px' }}>
-          <span className="sev font-bold">{sev.icon} {sev.label}</span>
-          <span className={`pill ok`}>{a.status.toUpperCase()}</span>
+    <article
+      className={`relative overflow-hidden rounded-lg border border-slate-800 bg-slate-900 py-4 pl-6 pr-5 ${
+        a.status === "resolved" ? "opacity-60" : ""
+      }`}
+    >
+      <span className={`absolute inset-y-0 left-0 w-1 ${sev.accent}`} aria-hidden="true" />
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-semibold tracking-wider ${sev.badge}`}>
+            <span className={`size-1.5 rounded-full ${sev.dot}`} aria-hidden="true" />
+            {sev.label}
+          </span>
+          <span
+            className={`rounded border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${
+              STATUS_STYLE[a.status] ?? "border-slate-700 text-slate-300"
+            }`}
+          >
+            {a.status}
+          </span>
         </div>
-        <time className="muted text-xs">{new Date(a.created_at).toLocaleString()}</time>
+        <time className="text-xs tabular-nums text-slate-400">{new Date(a.created_at).toLocaleString()}</time>
       </header>
 
-      <div className="my-2">
-        <h3>
-          Region: <strong>{a.region_id}</strong> · {a.novel ? "Unrecognised Pattern (Possible Novel Event)" : (a.disaster_type || "Weather Hazard")}
+      <div className="mt-3 space-y-1">
+        <h3 className="text-sm text-slate-400">
+          Region <strong className="font-semibold text-slate-100">{a.region_id}</strong>
         </h3>
-        <div className="flex gap-4 my-1 text-sm" style={{ display: 'flex', gap: '16px' }}>
-          <span>Risk Level: <strong>{riskPct}%</strong></span>
-          <span>Confidence: <strong>{confPct}%</strong></span>
-        </div>
+        <p className="text-base font-medium text-slate-100">
+          {a.novel ? "Unrecognised pattern (possible novel event)" : a.disaster_type || "Weather hazard"}
+        </p>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-5">
+        <Meter label="Risk level" pct={riskPct} tone="bg-red-500" />
+        <Meter label="Confidence" pct={confPct} tone="bg-emerald-500" />
       </div>
 
       {a.degraded && (
-        <div className="badge my-2" style={{ color: '#ffb020', border: '1px dashed #ffb020', padding: '4px' }}>
-          ◐ Reduced confidence: Satellite feed temporarily unavailable
+        <div className="mt-4 rounded-md border border-amber-900/70 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+          ◐ Reduced confidence: satellite feed temporarily unavailable
         </div>
       )}
 
-      <details className="mt-2 text-xs">
-        <summary style={{ cursor: 'pointer' }}>Why was this alert triggered?</summary>
-        <ul style={{ paddingLeft: '16px', fontFamily: 'monospace' }}>
+      <details className="group mt-4 text-xs">
+        <summary className="cursor-pointer select-none text-slate-400 hover:text-slate-200">Why was this alert triggered?</summary>
+        <ul className="mt-2 space-y-1 rounded-md border border-slate-800 bg-slate-950/50 p-3 font-mono text-slate-300">
           {(a.explanation || []).map((x: any, idx: number) => (
-            <li key={idx}>
-              {x.feature || x[0]}: {x.contribution !== undefined ? (x.contribution >= 0 ? `+${x.contribution}` : x.contribution) : (x[1] >= 0 ? `+${x[1]}` : x[1])}
+            <li key={idx} className="flex justify-between gap-4">
+              <span className="min-w-0 truncate">{x.feature || x[0]}</span>
+              <span className="shrink-0 tabular-nums text-slate-100">
+                {x.contribution !== undefined ? (x.contribution >= 0 ? `+${x.contribution}` : x.contribution) : (x[1] >= 0 ? `+${x[1]}` : x[1])}
+              </span>
             </li>
           ))}
         </ul>
-        <p className="muted mt-2">
+        <p className="mt-2 text-slate-500">
           Model version: {a.model_version} · Processing latency: {a.latency_ms} ms
         </p>
       </details>
 
       {canAct && a.status !== "resolved" && (
-        <footer className="actions mt-3" style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+        <footer className="mt-4 flex gap-2 border-t border-slate-800 pt-4">
           {a.status === "open" && (
-            <button onClick={() => onAct(a.id, "ack")}>
+            <button className="btn btn-primary btn-sm" onClick={() => onAct(a.id, "ack")}>
               Acknowledge
             </button>
           )}
-          <button className="secondary" onClick={() => onAct(a.id, "resolve")}>
-            Resolve Alert
+          <button className="btn btn-secondary btn-sm" onClick={() => onAct(a.id, "resolve")}>
+            Resolve alert
           </button>
         </footer>
       )}
@@ -164,6 +247,52 @@ function AlertCard({
 }
 
 type Tab = "overview" | "map" | "alerts" | "timeseries" | "model";
+
+const TABS: [Tab, string][] = [
+  ["overview", "Overview"],
+  ["map", "Risk Map"],
+  ["alerts", "Alerts"],
+  ["timeseries", "Time Series"],
+  ["model", "Model"],
+];
+
+function LiveIndicator({ live }: { live: boolean }) {
+  return (
+    <span
+      role="status"
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold tracking-wider ${
+        live
+          ? "border-emerald-800 bg-emerald-950/60 text-emerald-300"
+          : "border-slate-700 bg-slate-900 text-slate-400"
+      }`}
+    >
+      <span
+        className={`size-2 rounded-full ${live ? "animate-pulse bg-emerald-400" : "bg-transparent ring-1 ring-inset ring-slate-500"}`}
+        aria-hidden="true"
+      />
+      {live ? "LIVE" : "OFFLINE"}
+    </span>
+  );
+}
+
+function Clock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const date = now.toLocaleDateString([], { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+  const zone = new Intl.DateTimeFormat([], { timeZoneName: "short" }).formatToParts(now).find((p) => p.type === "timeZoneName")?.value;
+  return (
+    <div className="hidden text-right leading-tight lg:block" aria-label="Current local time">
+      <div className="text-sm font-semibold tabular-nums text-slate-200">
+        {time} <span className="text-xs font-medium text-slate-500">{zone}</span>
+      </div>
+      <div className="text-xs text-slate-500">{date}</div>
+    </div>
+  );
+}
 
 export default function App() {
   const [session, setSession] = useState<{ token: string; role: string } | null>(null);
@@ -217,7 +346,7 @@ export default function App() {
         }
       } catch (e) {
         // Bypasses local development socket boundary errors gracefully
-        setLive(true); 
+        setLive(true);
       }
     };
     connect();
@@ -264,68 +393,101 @@ export default function App() {
   }));
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <h1>SA Early Warning Dashboard</h1>
-          <p className="muted">Operational intelligence for disaster monitoring</p>
-        </div>
-        <div className="topbar-actions">
-          <span className={`live ${live ? "on" : "off"}`}>
-            {live ? "● LIVE" : "○ OFFLINE"}
-          </span>
-          <button className="secondary" onClick={() => setSession(null)}>
-            Log out
-          </button>
-        </div>
-      </header>
+    <div className="min-h-screen">
+      <div className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
+        <header className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <BrandMark />
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-semibold leading-tight tracking-tight text-slate-100">
+                SA Early Warning Dashboard
+              </h1>
+              <p className="hidden truncate text-xs text-slate-400 sm:block">Operational intelligence for disaster monitoring</p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+            <Clock />
+            <LiveIndicator live={live} />
+            <span
+              className="hidden rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-300 sm:inline"
+              title="Signed-in role"
+            >
+              {session.role}
+            </span>
+            <button className="btn btn-secondary btn-sm" onClick={() => setSession(null)}>
+              Log out
+            </button>
+          </div>
+        </header>
 
-      <nav className="tabs" aria-label="Main sections">
-        {[
-          ["overview", "Overview"],
-          ["map", "Risk Map"],
-          ["alerts", "Alerts"],
-          ["timeseries", "Time Series"],
-          ["model", "Model"],
-        ].map(([key, label]) => (
-          <button
-            key={key}
-            className={tab === key ? "active" : ""}
-            onClick={() => setTab(key as Tab)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+        <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8" aria-label="Main sections">
+          <div role="tablist" className="-mb-px flex gap-1 overflow-x-auto">
+            {TABS.map(([key, label]) => {
+              const active = tab === key;
+              return (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={active}
+                  className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+                    active
+                      ? "border-sky-400 text-white"
+                      : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-200"
+                  }`}
+                  onClick={() => setTab(key)}
+                >
+                  {label}
+                  {key === "alerts" && openAlerts.length > 0 && (
+                    <span className="rounded-full bg-red-600 px-1.5 py-px text-[11px] font-semibold tabular-nums leading-4 text-white">
+                      {openAlerts.length}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      </div>
 
-      {error && <div className="banner error">{error}</div>}
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {error && (
+          <div role="alert" className="mb-4 rounded-md border border-red-800 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        )}
 
-      {loading ? (
-        <div className="center pad"><p>Loading national monitoring data…</p></div>
-      ) : tab === "overview" ? (
-        <Overview
-          alerts={alerts}
-          regions={regions}
-          live={live}
-          health={health}
-        />
-      ) : tab === "map" ? (
-        <RiskMap />
-      ) : tab === "alerts" ? (
-        <section className="grid two-col">
-          {alerts.length === 0 ? (
-            <div className="card empty">No alerts.</div>
-          ) : (
-            alerts.map((a) => (
-              <AlertCard key={a.id} a={a} canAct={canAct} onAct={act} />
-            ))
-          )}
-        </section>
-      ) : tab === "timeseries" ? (
-        <TimeSeries token={session.token} regions={regions} />
-      ) : (
-        <ModelPerformance token={session.token} />
-      )}
+        {loading ? (
+          <div className="flex items-center justify-center gap-3 py-24 text-sm text-slate-400">
+            <span className="size-4 animate-spin rounded-full border-2 border-slate-700 border-t-sky-400" aria-hidden="true" />
+            Loading national monitoring data…
+          </div>
+        ) : tab === "overview" ? (
+          <Overview
+            alerts={alerts}
+            regions={regions}
+            live={live}
+            health={health}
+          />
+        ) : tab === "map" ? (
+          <RiskMap />
+        ) : tab === "alerts" ? (
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {alerts.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-800 bg-slate-900 p-8 text-center text-sm text-slate-400 xl:col-span-2">
+                No alerts.
+              </div>
+            ) : (
+              alerts.map((a) => (
+                <AlertCard key={a.id} a={a} canAct={canAct} onAct={act} />
+              ))
+            )}
+          </section>
+        ) : tab === "timeseries" ? (
+          <TimeSeries token={session.token} regions={regions} />
+        ) : (
+          <ModelPerformance token={session.token} />
+        )}
+      </main>
     </div>
   );
 }
